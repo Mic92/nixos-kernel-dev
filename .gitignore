@@ -1,3 +1,5 @@
 /kernel
-/kernel-modules
+/initrd
 /result
+/initramfs.cpio
+/nixos.img

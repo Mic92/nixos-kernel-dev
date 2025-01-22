@@ -4,9 +4,7 @@
 # vim: set ft=make :
 
 linux_dir := justfile_directory() + "/../linux"
-uroot_dir := justfile_directory() + "/../u-root"
 linux_repo := "https://github.com/torvalds/linux"
-uroot_repo := "https://github.com/u-root/u-root"
 
 # Interactively select a task from just file
 default:
@@ -43,35 +41,36 @@ build-linux: configure-linux
     cd {{ linux_dir }}
     yes "" | make -C {{ linux_dir }} -j$(nproc)
 
-clone-uroot:
-    #!/usr/bin/env bash
-    if [[ ! -d {{ uroot_dir }} ]]; then
-        git clone {{ uroot_repo }} {{ uroot_dir }}
-    fi
-
 install-linux: build-linux
     #!/usr/bin/env bash
     set -xeu
-    rm -rf $(pwd)/{kernel,kernel-modules}
     export INSTALL_PATH=$(pwd)/kernel
-    export INSTALL_MOD_PATH=$(pwd)/kernel-modules
+    export INSTALL_MOD_PATH=$(pwd)/initrd
     cd {{ linux_dir }}
     make -C {{ linux_dir }} -j$(nproc) modules_install
     make -C {{ linux_dir }} -j$(nproc) install
 
-build-initrd: install-linux clone-uroot
+busybox-initrd:
+	#!/usr/bin/env bash
+	set -xeu
+
+build-initrd: install-linux
     #!/usr/bin/env bash
     set -xeu
     initrd=$(pwd)/initramfs.cpio
-    pushd {{ uroot_dir }}
-    u-root -o $initrd -uinitcmd ""
-    popd
+    stage1=$(pwd)/stage1.sh
     # append kernel modules to initrd
-    cd $(pwd)/kernel-modules
-    find . | cpio -H newc -o >> "$initrd"
+    cd $(pwd)/initrd
+    mkdir -p bin sbin
+    busybox --install -s bin/
+    cp "$stage1" ./sbin/init
+    find . | cpio -H newc -o > "$initrd"
 
 nixos-image:
+    [[ -f ./nixos-image/nixos.img ]] || nix build -o ./nixos-image ".#nixos-image"
+    [[ -f ./nixos.img ]] || install -m600 ./nixos-image/nixos.img ./nixos.img
 
-
-qemu: build-initrd
-    qemu-kvm -nographic -kernel $(pwd)/kernel/vmlinuz -initrd $(pwd)/initramfs.cpio -append "console=ttyS0"
+qemu: build-initrd nixos-image
+    qemu-kvm \
+      -nographic -kernel $(pwd)/kernel/vmlinuz -initrd $(pwd)/initramfs.cpio -append "root=/dev/sda console=ttyS0,115200" \
+       -m 1G -smp 2 -enable-kvm -cpu host -drive file=$(pwd)/nixos.img,format=raw
