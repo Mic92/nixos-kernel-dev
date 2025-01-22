@@ -41,6 +41,7 @@ build-linux: configure-linux
     cd {{ linux_dir }}
     yes "" | make -C {{ linux_dir }} -j$(nproc)
 
+# Install linux kernel and kernel modules
 install-linux: build-linux
     #!/usr/bin/env bash
     set -xeu
@@ -50,10 +51,7 @@ install-linux: build-linux
     make -C {{ linux_dir }} -j$(nproc) modules_install
     make -C {{ linux_dir }} -j$(nproc) install
 
-busybox-initrd:
-	#!/usr/bin/env bash
-	set -xeu
-
+# Build initrd bassed on busybox and kernel modules
 build-initrd: install-linux
     #!/usr/bin/env bash
     set -xeu
@@ -66,10 +64,12 @@ build-initrd: install-linux
     cp "$stage1" ./sbin/init
     find . | cpio -H newc -o > "$initrd"
 
+# Build nixos image
 nixos-image:
     [[ -f ./nixos-image/nixos.img ]] || nix build -o ./nixos-image ".#nixos-image"
     [[ -f ./nixos.img ]] || install -m600 ./nixos-image/nixos.img ./nixos.img
 
+# Boot in qemu
 qemu: build-initrd nixos-image
     qemu-kvm \
       -nographic -kernel $(pwd)/kernel/vmlinuz -initrd $(pwd)/initramfs.cpio -append "root=/dev/sda console=ttyS0,115200" \
